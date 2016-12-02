@@ -5,6 +5,10 @@
 // libraries
 #include <GSM.h>
 
+#include <Wire.h>
+#include "Adafruit_LEDBackpack.h"
+#include "Adafruit_GFX.h"
+
 // PIN Number
 #define PINNUMBER ""
 
@@ -14,7 +18,7 @@
 #define GPRS_PASSWORD  "" // replace with your GPRS password
 
 // MQTT Broker
-#define MQTT_TOPIC "/jacek"
+#define MQTT_TOPIC "/number-in-the-box"
 #define MQTT_CLIENTID "jacek"
 #define MQTT_SERVER "test.mosquitto.org"
 #define MQTT_USER ""
@@ -28,9 +32,11 @@
 // initialize the library instance
 GSMClient gsmClient;
 GPRS gprs;
-GSM gsmAccess;
+GSM gsmAccess(true);
 
 PubSubClient client(gsmClient);
+
+Adafruit_BicolorMatrix matrix = Adafruit_BicolorMatrix();
 
 int lastValue = -1;
 
@@ -55,6 +61,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
     if(lastValue != newValue) {
       Serial.print("Changed: ");
       Serial.println(newValue);
+      writeDigit(newValue);
       lastValue = newValue;
     } else {
       Serial.print("Not changed: ");
@@ -80,8 +87,97 @@ void reconnect() {
   }
 }
 
+void writeDigit(int number) {
+  int digit = 0;
+  char errorChar = 33; // ! sign
+  char digitChar = (char)(errorChar);;
+  int charShift = 48;
+
+  if (number >=0 && number <= 300) {
+    if (number / 100 > 0) {
+      matrix.setTextColor(LED_GREEN);
+      digit = number / 100;
+    } else if (number / 10 > 0) {
+      matrix.setTextColor(LED_YELLOW);
+      digit = number / 10;
+    } else {
+      matrix.setTextColor(LED_RED);
+      digit = number;
+    }
+    digitChar = (char)(digit + charShift);
+  } else {
+    matrix.setTextColor(LED_RED);
+    digitChar = (char)(errorChar);
+  }
+
+  matrix.setTextSize(1);
+  matrix.setTextWrap(false);  // we dont want text to wrap so it scrolls nicely
+  matrix.clear();
+  matrix.setCursor(0,1);
+  matrix.print(digitChar);
+  showBar(number);
+  matrix.writeDisplay();
+  printSerial(number, digit);
+
+}
+
+void showBar (int number) {
+  int height = 0;
+  if (number == 0 || number > 300) {
+    height = 0;
+
+  } else if (number == 300) {
+    height = 7;
+    writeProperBar(height, LED_GREEN);
+
+  } else if (number >= 250) {
+    height = 6;
+    writeProperBar(height, LED_GREEN);
+
+  } else if (number >= 200) {
+    height = 5;
+    writeProperBar(height, LED_GREEN);
+
+  } else if (number >= 150) {
+    height = 4;
+    writeProperBar(height, LED_GREEN);
+
+  } else if (number >= 100) {
+    height = 3;
+    writeProperBar(height, LED_GREEN);
+
+  } else if (number >= 50) {
+    height = 2;
+    writeProperBar(height, LED_YELLOW);
+
+  } else if (number >= 10) {
+    height = 1;
+    writeProperBar(height, LED_YELLOW);
+
+  } else if (number > 0) {
+    height = 0;
+    writeProperBar(height, LED_RED);
+  }
+}
+
+void writeProperBar(int height, int color) {
+  matrix.drawLine(7,7,7,7-(height),color);
+  matrix.drawLine(6,7,6,7-(height),color);
+}
+
+void printSerial(int number, int digit) {
+  Serial.print("  number = ");
+  Serial.print(number);
+  Serial.print(", digit = ");
+  Serial.print(digit);
+  Serial.println(".");
+}
+
 void setup()
 {
+  matrix.begin(0x70);  // pass in the address
+  writeDigit(-1);
+
   // initialize serial communications and wait for port to open:
   Serial.begin(9600);
   while (!Serial) {
@@ -115,7 +211,12 @@ void setup()
 
 void loop()
 {
+  if(!gsmClient.connected()) {
+    Serial.println("gsm not connected");
+  }
+
   if (!client.connected()) {
+    Serial.println("mqtt not connected");
     reconnect();
   }
   client.loop();
